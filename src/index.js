@@ -74,7 +74,7 @@ async function handleChatRequest(request, env) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: "gpt-5-nano",
+        model: "o1-mini",
         messages: messages,
         max_tokens: 150,
         temperature: 0.7,
