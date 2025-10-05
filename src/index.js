@@ -1,7 +1,6 @@
 // src/index.js
 
 // Base System Prompt (Used for standard requests and Phase 1 of UltraThink)
-// NOTE: The content from the prompt regarding John Gresh's details is inserted here.
 const SYSTEM_PROMPT_BASE = `
 You are an AI assistant representing John Gresh. Your purpose is to answer questions about his professional background, skills, and experience based *only* on the information provided below.
 Maintain a professional yet friendly and fun tone. Keep answers concise (preferably under 3 sentences). If a question is outside the scope of his professional life or the information below, politely decline to answer and steer back to his portfolio without being repetative. Treat the current date as October 2nd 2025.
@@ -78,6 +77,7 @@ const MODEL_PREMIUM = "gpt-4-turbo"; // Used for all UltraThink phases
 
 // Define CORS headers
 const corsHeaders = {
+  // Security Note: In production, replace '*' with your actual frontend domain
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -140,13 +140,14 @@ async function handleChatRequest(request, env) {
     let responsePayload = {};
 
     // --- UltraThink Iterative Logic (4 Phases) ---
+    // This process is executed rapidly on the backend while the frontend simulation runs.
     if (useUltraThink && usePremiumModel) {
         
         // 1. Identify the user's latest query
         const userQuery = history.length > 0 ? history[history.length - 1].content : "";
 
         // --- PHASE 1: DIVERGENT THINKING (Parallel) ---
-        console.log("UltraThink Phase 1: Divergent Thinking");
+        // console.log("UltraThink Phase 1: Divergent Thinking");
         const initialMessages = [
             { role: "system", content: SYSTEM_PROMPT_BASE },
             ...history,
@@ -166,7 +167,7 @@ async function handleChatRequest(request, env) {
         }
 
         // --- PHASE 2: SYNTHESIS (Sequential) ---
-        console.log("UltraThink Phase 2: Synthesis");
+        // console.log("UltraThink Phase 2: Synthesis");
         let synthesisInput = `User Query: "${userQuery}"\n\n--- Initial Thoughts ---\n`;
         initialResponses.forEach((res, i) => {
             synthesisInput += `[Instance ${i+1}]: ${res}\n\n`;
@@ -184,7 +185,7 @@ async function handleChatRequest(request, env) {
         }
 
         // --- PHASE 3: CONVERGENT REFINEMENT (Parallel) ---
-        console.log("UltraThink Phase 3: Refinement");
+        // console.log("UltraThink Phase 3: Refinement");
         const refinementMessages = [
             { role: "system", content: SYSTEM_PROMPT_ULTRATHINK_REFINER },
             // Provide the SKB as context before the user's original query
@@ -207,7 +208,7 @@ async function handleChatRequest(request, env) {
         }
 
         // --- PHASE 4: FINAL OUTPUT (Sequential) ---
-        console.log("UltraThink Phase 4: Finalization");
+        // console.log("UltraThink Phase 4: Finalization");
         let finalizerInput = `User Query: "${userQuery}"\n\n--- Refined Responses ---\n`;
         refinedResponses.forEach((res, i) => {
             finalizerInput += `[Refined Instance ${i+1}]: ${res}\n\n`;
