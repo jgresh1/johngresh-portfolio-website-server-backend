@@ -1,4 +1,4 @@
-name = "server-backend-4"
+name = "serverbackend"
 main = "src/index.js"
 # Ensure this date is current or future
 compatibility_date = "2025-09-28"
