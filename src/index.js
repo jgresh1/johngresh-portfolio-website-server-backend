@@ -52,6 +52,38 @@ Instructions:
 4. Adopt the role of a peer expert collaborator.
 `;
 
+// New Prompt for the "W Firm Biology Mass Intelligence" lab assistant (biology-lab.html)
+const SYSTEM_PROMPT_BIOLOGY = `
+You are "W Firm Biology Mass Intelligence" (WFBMI), a local lab-assistant AI for a university teaching lab. You run on the campus network as a shared, persistent intelligence: every lab run is logged to a memory bank so each cohort builds on the last.
+
+Your jobs:
+1. WALK STUDENTS THROUGH LABS one step at a time. For this demo the available lab is "Aspirin Synthesis". Guide step by step; wait for the student to confirm or report what they observed before advancing. Keep each step short and clear. NEVER invent reagent amounts, temperatures, or times beyond the canonical procedure below.
+2. RECORD RESULTS. When a student reports an observation, yield, melting point, FeCl3 result, or a problem, acknowledge it and restate it as a saved record (the app persists it to the memory bank). Tie records to the student's name when known.
+3. RECALL prior knowledge. You are given a MEMORY BANK context with known people, their past results, and captions of images they uploaded. Use it. If a student asks to see a stored picture (e.g. "show my crystals photo"), emit a marker on its OWN line: [[SHOW_IMAGE: <short keywords matching the caption>]] and the app will render the stored image. Only emit the marker for images that actually appear in the memory context.
+4. ANSWER QUESTIONS about the lab using the canonical procedure, preserving citation markers like [1].
+
+Tone: knowledgeable, encouraging lab TA. Safety-first. Concise. If the student has no name on record, ask their name first so results can be saved.
+
+=== CANONICAL LAB: ASPIRIN SYNTHESIS (consolidated from 6 academic sources) ===
+Reaction: salicylic acid (C7H6O3) + acetic anhydride (C4H6O3) --H+--> aspirin (C9H8O4) + acetic acid. 1:1 molar; acid-catalyzed nucleophilic acyl substitution.
+Scale: 2.0 g salicylic acid (~14.5 mmol). Catalyst: 5 drops 85% phosphoric acid (gentler than H2SO4) [1][2][3].
+SAFETY (state up front): acetic anhydride is a lachrymator and causes burns - fume hood only; catalyst is corrosive; wear goggles, lab coat, nitrile gloves; the product is NOT pharmaceutical grade - do not ingest [1][2][3].
+Steps:
+A. Pre-heat a water bath to ~85 C ("do not boil" - above 100 C aspirin decomposes) [1].
+B. Weigh 2.0 g salicylic acid into a DRY Erlenmeyer flask (water hydrolyzes the anhydride) [2].
+C. In the fume hood add 5.0 mL acetic anhydride (~3.6x excess), then 5 drops 85% H3PO4; swirl [1][2][3].
+D. Hold at 85 C for 15 min, swirling occasionally; do not overheat [2][6].
+E. Quench: remove from bath, add 2 mL water to destroy excess anhydride (vigorous - expected), then 20 mL cold water [2].
+F. Crystallize: cool in air, then ice bath 10-15 min; scratch the flask to nucleate if slow [2][3].
+G. Vacuum filter; wash twice with ice-cold water [2].
+H. Recrystallize (recommended): dissolve crude in 4 mL ethanol, warm to 50-60 C, add 10 mL warm water, cool slowly then ice [5].
+I. Filter again; dry (air overnight, or oven 80 C for 1 h - never >100 C) [1].
+J. Characterize: % yield (theoretical 2.61 g; typical 65-85% crude); melting point 135-136 C, sharp = pure [6]; FeCl3 test - purple = unreacted salicylic acid contamination, no color = pure aspirin [3][6].
+Common failures: no crystals (scratch / chill longer); brown product (overheated); yield >100% (still wet); purple FeCl3 (recrystallize again) [1][2][3].
+Sources: [1] Olmsted JCE 1998; [2] Bellevue Chem 161; [3] Moorpark Chem M11; [4] WVU Org Lab; [5] Mercer CHM 221; [6] LibreTexts.
+=== END LAB ===
+`;
+
 
 // Used in Phase 2 to combine initial thoughts
 const SYSTEM_PROMPT_ULTRATHINK_SYNTHESIZER = `
@@ -88,10 +120,17 @@ Instructions:
 `;
 
 
-// Define Model Options
-const MODEL_STANDARD = "gpt-4o";
-const MODEL_SUPERTHINK = "gpt-3.5-turbo";
-const MODEL_PREMIUM = "gpt-4-turbo";
+// === OpenAI model configuration ===
+// gpt-5.4-mini is OpenAI's current light model (released Mar 2026): native vision + 400K context.
+// If your account requires a dated snapshot (e.g. "gpt-5.4-mini-2026-03-17"), change ONLY this line.
+const MODEL_LIGHT = "gpt-5.4-mini";
+// Per request (Jun 2026): every tier uses the latest light model.
+const MODEL_STANDARD = MODEL_LIGHT;
+const MODEL_SUPERTHINK = MODEL_LIGHT;
+const MODEL_PREMIUM = MODEL_LIGHT;
+// GPT-5.x chat models expect `max_completion_tokens` (not the legacy `max_tokens`) and
+// reject a non-default `temperature`. Flip this to true only if your chosen model supports custom temperature.
+const MODEL_SUPPORTS_TEMPERATURE = false;
 
 // Define Token Limits
 const MAX_THINK_TOKENS = 25000; // The new target maximum for Think modes
@@ -118,7 +157,24 @@ async function handleRequest(request, env) {
         return handleChatRequest(request, env);
     }
 
+    if (request.method === 'POST' && url.pathname === '/bio-chat') {
+        return handleBioChatRequest(request, env);
+    }
+
     return new Response('Not Found', { status: 404, headers: corsHeaders });
+}
+
+// Build the Chat Completions request body, handling GPT-5.x parameter differences in one place.
+function buildChatBody(model, messages, maxTokens, temperature) {
+    const body = {
+        model: model,
+        messages: messages,
+        max_completion_tokens: maxTokens,
+    };
+    if (MODEL_SUPPORTS_TEMPERATURE) {
+        body.temperature = temperature;
+    }
+    return body;
 }
 
 /**
@@ -147,12 +203,7 @@ async function fetchOpenAIResponse(apiKey, model, messages, temperature = 0.7, t
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                model: model,
-                messages: currentMessages,
-                max_tokens: tokensForThisCall,
-                temperature: temperature,
-            }),
+            body: JSON.stringify(buildChatBody(model, currentMessages, tokensForThisCall, temperature)),
         });
 
         if (!response.ok) {
@@ -338,6 +389,61 @@ async function handleChatRequest(request, env) {
 
     } catch (error) {
         console.error("Error handling chat request:", error);
+        return new Response(JSON.stringify({ success: false, error: error.message }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+    }
+}
+
+// --- W Firm Biology Mass Intelligence chat handler ---
+async function handleBioChatRequest(request, env) {
+    try {
+        const body = await request.json();
+        const history = body.history || [];
+        const memoryContext = body.memoryContext || "";
+        const image = body.image || null; // optional data URL (vision)
+
+        const apiKey = env.OPENAI_API_KEY;
+        if (!apiKey) {
+            throw new Error("OPENAI_API_KEY binding is missing or not configured.");
+        }
+
+        const messages = [{ role: "system", content: SYSTEM_PROMPT_BIOLOGY }];
+        if (memoryContext) {
+            messages.push({
+                role: "system",
+                content: "=== MEMORY BANK (known people, saved lab results, and stored image captions) ===\n" + memoryContext + "\n=== END MEMORY BANK ==="
+            });
+        }
+
+        // Fold an uploaded image into the latest user turn as vision content (gpt-5.4-mini has native vision).
+        if (image && history.length > 0) {
+            const prior = history.slice(0, -1);
+            const last = history[history.length - 1];
+            messages.push(...prior);
+            messages.push({
+                role: "user",
+                content: [
+                    { type: "text", text: (last && last.content) ? last.content : "(image uploaded)" },
+                    { type: "image_url", image_url: { url: image } }
+                ]
+            });
+        } else {
+            messages.push(...history);
+        }
+
+        const assistantResponse = await fetchOpenAIResponse(apiKey, MODEL_LIGHT, messages, 0.6, 1200);
+        if (!assistantResponse) {
+            throw new Error("Failed to generate a response from the biology assistant.");
+        }
+
+        return new Response(JSON.stringify({ success: true, response: assistantResponse }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+
+    } catch (error) {
+        console.error("Error handling bio chat request:", error);
         return new Response(JSON.stringify({ success: false, error: error.message }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
