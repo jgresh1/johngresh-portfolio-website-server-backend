@@ -2,3 +2,19 @@ name = "server-backend-4"
 main = "src/index.js"
 # Ensure this date is current or future
 compatibility_date = "2025-09-28"
+
+[vars]
+BIO_ACCESS_CODE = "ROSEBUD"
+
+# === Cross-device persistence for the W Firm Biology lab ===
+# See setup-persistence.md. After creating the resources, UNCOMMENT the two blocks
+# below and paste the database_id printed by `wrangler d1 create lab-memory`.
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "lab-memory"
+# database_id = "PASTE_DATABASE_ID_HERE"
+#
+# [[r2_buckets]]
+# binding = "LAB_IMAGES"
+# bucket_name = "lab-images"

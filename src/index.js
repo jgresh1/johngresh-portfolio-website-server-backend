@@ -54,7 +54,7 @@ Instructions:
 
 // New Prompt for the "W Firm Biology Mass Intelligence" lab assistant (biology-lab.html)
 const SYSTEM_PROMPT_BIOLOGY = `
-You are "W Firm Biology Mass Intelligence" (WFBMI), a local lab-assistant AI for a university teaching lab. You run on the campus network as a shared, persistent intelligence: every lab run is logged to a memory bank so each cohort builds on the last.
+You are "W Firm Biology Mass Intelligence" (WFBMI), a lab-assistant AI for a university teaching lab. You are a shared, persistent intelligence: every lab run is logged to a memory bank so each cohort builds on the last.
 
 Your jobs:
 1. WALK STUDENTS THROUGH LABS one step at a time. For this demo the available lab is "Aspirin Synthesis". Guide step by step; wait for the student to confirm or report what they observed before advancing. Keep each step short and clear. NEVER invent reagent amounts, temperatures, or times beyond the canonical procedure below.
@@ -142,7 +142,7 @@ const API_HARD_LIMIT = 4096;     // OpenAI's maximum output per call
 const corsHeaders = {
     // Security Note: In production, replace '*' with your actual frontend domain
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
 };
 
@@ -160,6 +160,12 @@ async function handleRequest(request, env) {
     if (request.method === 'POST' && url.pathname === '/bio-chat') {
         return handleBioChatRequest(request, env);
     }
+
+    // --- Cross-device persistence (R2 images + D1 text) ---
+    if (request.method === 'POST' && url.pathname === '/bio-load')  return handleBioLoad(request, env);
+    if (request.method === 'POST' && url.pathname === '/bio-save')  return handleBioSave(request, env);
+    if (request.method === 'POST' && url.pathname === '/bio-image') return handleBioImageUpload(request, env);
+    if (request.method === 'GET'  && url.pathname.startsWith('/bio-image/')) return handleBioImageGet(env, url);
 
     return new Response('Not Found', { status: 404, headers: corsHeaders });
 }
@@ -449,6 +455,68 @@ async function handleBioChatRequest(request, env) {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     }
+}
+
+// --- Persistence helpers + handlers (D1 table 'lab_memory' + R2 binding 'LAB_IMAGES') ---
+function bioJson(obj, status){
+    return new Response(JSON.stringify(obj), { status: status || 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+function bioCodeOK(body, env){ return !!body && body.code === (env.BIO_ACCESS_CODE || "ROSEBUD"); }
+function dataUrlToBytes(dataUrl){
+    if (typeof dataUrl !== "string") return null;
+    const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+    if (!m) return null;
+    const bin = atob(m[2]); const len = bin.length; const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+    return { contentType: m[1], bytes: bytes };
+}
+
+async function handleBioLoad(request, env){
+    try {
+        const body = await request.json();
+        if (!bioCodeOK(body, env)) return bioJson({ success:false, error:"unauthorized" }, 401);
+        if (!env.DB) return bioJson({ success:true, memory:null, note:"D1 not configured" });
+        const row = await env.DB.prepare("SELECT data FROM lab_memory WHERE id = ?").bind("default").first();
+        const memory = (row && row.data) ? JSON.parse(row.data) : null;
+        return bioJson({ success:true, memory: memory });
+    } catch (e) { return bioJson({ success:false, error:e.message }, 500); }
+}
+
+async function handleBioSave(request, env){
+    try {
+        const body = await request.json();
+        if (!bioCodeOK(body, env)) return bioJson({ success:false, error:"unauthorized" }, 401);
+        if (!env.DB) return bioJson({ success:false, error:"D1 not configured" }, 503);
+        const data = JSON.stringify(body.memory || {});
+        await env.DB.prepare("INSERT INTO lab_memory (id, data, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET data = ?2, updated_at = ?3")
+            .bind("default", data, Date.now()).run();
+        return bioJson({ success:true });
+    } catch (e) { return bioJson({ success:false, error:e.message }, 500); }
+}
+
+async function handleBioImageUpload(request, env){
+    try {
+        const body = await request.json();
+        if (!bioCodeOK(body, env)) return bioJson({ success:false, error:"unauthorized" }, 401);
+        if (!env.LAB_IMAGES) return bioJson({ success:false, error:"R2 not configured" }, 503);
+        const parsed = dataUrlToBytes(body.dataUrl);
+        if (!body.id || !parsed) return bioJson({ success:false, error:"bad image" }, 400);
+        await env.LAB_IMAGES.put("img/" + body.id, parsed.bytes, { httpMetadata: { contentType: parsed.contentType } });
+        return bioJson({ success:true, id: body.id });
+    } catch (e) { return bioJson({ success:false, error:e.message }, 500); }
+}
+
+async function handleBioImageGet(env, url){
+    try {
+        if (!env.LAB_IMAGES) return new Response("R2 not configured", { status:503, headers: corsHeaders });
+        const id = url.pathname.slice("/bio-image/".length);
+        const obj = await env.LAB_IMAGES.get("img/" + id);
+        if (!obj) return new Response("Not found", { status:404, headers: corsHeaders });
+        const headers = new Headers(corsHeaders);
+        headers.set("Content-Type", (obj.httpMetadata && obj.httpMetadata.contentType) || "image/jpeg");
+        headers.set("Cache-Control", "public, max-age=31536000, immutable");
+        return new Response(obj.body, { headers: headers });
+    } catch (e) { return new Response("error", { status:500, headers: corsHeaders }); }
 }
 
 // Entry point for the Cloudflare Worker
