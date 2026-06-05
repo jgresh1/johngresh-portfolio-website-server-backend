@@ -1,4 +1,4 @@
-name = "server-backend-4"
+name = "serverbackend"
 main = "src/index.js"
 # Ensure this date is current or future
 compatibility_date = "2025-09-28"
@@ -7,14 +7,15 @@ compatibility_date = "2025-09-28"
 BIO_ACCESS_CODE = "ROSEBUD"
 
 # === Cross-device persistence for the W Firm Biology lab ===
-# See setup-persistence.md. After creating the resources, UNCOMMENT the two blocks
-# below and paste the database_id printed by `wrangler d1 create lab-memory`.
-#
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "lab-memory"
-# database_id = "PASTE_DATABASE_ID_HERE"
-#
+# D1 holds the cohort memory (people, lab sessions, results) AND, until R2 is enabled,
+# the uploaded images too (stored in the memory JSON — fine for a demo, not 1000s of images).
+[[d1_databases]]
+binding = "DB"
+database_name = "lab-memory"
+database_id = "2265babd-8b1b-4456-88d5-0b45fa637738"
+
+# R2 image offloading needs wrangler v4 OAuth or an API token with R2:Edit.
+# Create the bucket, then uncomment to move image bytes out of D1:
 # [[r2_buckets]]
 # binding = "LAB_IMAGES"
 # bucket_name = "lab-images"
